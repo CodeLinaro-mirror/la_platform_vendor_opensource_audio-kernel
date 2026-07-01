@@ -6843,7 +6843,9 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 	{
 		.name = LPASS_BE_PRI_MI2S_TX,
 		.stream_name = "Primary MI2S Capture",
-		.capture_only = 1,
+		.no_pcm = 1,
+                .capture_only = 1,
+                .dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_PRI_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -6867,6 +6869,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 		.stream_name = "Secondary MI2S Capture",
 		.no_pcm = 1,
 		.dpcm_capture = 1,
+		.capture_only = 1,
 		.id = MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -6890,6 +6893,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 		.stream_name = "Tertiary MI2S Capture",
 		.no_pcm = 1,
 		.dpcm_capture = 1,
+		.capture_only = 1,
 		.id = MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -6913,6 +6917,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 		.stream_name = "Quaternary MI2S Capture",
 		.no_pcm = 1,
 		.dpcm_capture = 1,
+		.capture_only = 1,
 		.id = MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -6936,6 +6941,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 		.stream_name = "Quinary MI2S Capture",
 		.no_pcm = 1,
 		.dpcm_capture = 1,
+		.capture_only = 1,
 		.id = MSM_BACKEND_DAI_QUINARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -6959,6 +6965,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 		.stream_name = "Senary MI2S Capture",
 		.no_pcm = 1,
 		.dpcm_capture = 1,
+		.capture_only = 1,
 		.id = MSM_BACKEND_DAI_SENARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
@@ -8293,10 +8300,16 @@ static void qcom_check_hostless(void *data, struct snd_pcm_substream *substream,
 
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 
-	if (!rtd) return;
+	if (!rtd)
+		return;
 
-	if (rtd->dai_link->id == MSM_FRONTEND_DAI_VOICEMMODE1 ||rtd->dai_link->id == MSM_FRONTEND_DAI_VOICEMMODE2) {
-			*no_buffer = true;
+	if (rtd->dai_link->id == MSM_FRONTEND_DAI_VOICEMMODE1 ||
+		rtd->dai_link->id == MSM_FRONTEND_DAI_VOICEMMODE2) {
+		*no_buffer = true;
+	}
+	else if (!strcmp(rtd->dai_link->stream_name, "Secondary MI2S_TX Hostless Capture")) {
+		pr_debug("%s Enable hostless/no_buffer for stream %s\n", __func__, rtd->dai_link->stream_name);
+		*no_buffer = true;
 	}
 }
 
