@@ -569,6 +569,7 @@ static int msm_lsm_get_conf_levels(struct lsm_client *client,
 {
 	int rc = 0;
 
+	pr_debug("%s Entered , client->num_sound_models= %d, ", __func__, client->num_sound_models);
 	if (client->num_sound_models != 0) {
 		if (client->num_keywords == 0) {
 			pr_debug("%s: no number of confidence_values provided\n",
@@ -751,7 +752,7 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 		struct lsm_params_info_v2 *p_info)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct lsm_priv *prtd = NULL;
+	struct lsm_priv *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	int rc = 0;
 	struct lsm_char_dev *lsm_dev;
@@ -779,7 +780,6 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 		mutex_unlock(&lsm_dev->lock);
 		return -EINVAL;
 	}
-	prtd = runtime->private_data;
 	if (!prtd || !prtd->lsm_client) {
 		pr_err("%s: No LSM session active\n", __func__);
 		mutex_unlock(&lsm_dev->lock);
@@ -869,6 +869,7 @@ static int msm_lsm_reg_model(struct snd_pcm_substream *substream,
 
 	if (p_info->model_id != 0 &&
 	    p_info->param_type == LSM_REG_MULTI_SND_MODEL) {
+		pr_debug("%s p_info->model_id = %d  \n",__func__, p_info->model_id);
 		sm = kzalloc(sizeof(*sm), GFP_KERNEL);
 		if (sm == NULL) {
 			dev_err(rtd->dev, "%s: snd_model kzalloc failed\n", __func__);
@@ -4182,6 +4183,13 @@ static int msm_lsm_module_params_put(struct snd_kcontrol *kcontrol,
 		info_v2.instance_id = INSTANCE_ID_0;
 		info_v2.stage_idx = LSM_STAGE_INDEX_FIRST;
 		info_v2.model_id = 0;
+
+		if (LSM_REG_MULTI_SND_MODEL == info_v2.param_type ||
+			LSM_DEREG_MULTI_SND_MODEL == info_v2.param_type ||
+			LSM_MULTI_SND_MODEL_CONFIDENCE_LEVELS == info_v2.param_type) {
+			info_v2.model_id = ((struct lsm_params_info_v2 *)(params))->model_id;
+			pr_debug("%s Setting model_id : %d \n", __func__, info_v2.model_id);
+		}
 #else
 		/* convert to V2 param info struct from legacy param info */
 		param_size = pack_lsm_params_info(&temp_ptr_info, params);
@@ -4193,7 +4201,6 @@ static int msm_lsm_module_params_put(struct snd_kcontrol *kcontrol,
 #endif
 		info_v2.instance_id = INSTANCE_ID_0;
 		info_v2.stage_idx = LSM_STAGE_INDEX_FIRST;
-		info_v2.model_id = 0;
 		params = params + param_size;
 		ptr_info_v2 = &info_v2;
 
