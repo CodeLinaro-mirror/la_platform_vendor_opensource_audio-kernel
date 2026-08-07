@@ -397,7 +397,7 @@ static int msm_ext_disp_audio_device_get(struct snd_kcontrol *kcontrol,
 	int rc = 0;
 	int dai_id = ctl->dai_idx;
 
-	if (dai_id < 0 || dai_id > DP_DAI2) {
+	if (dai_id < 0 || dai_id > HDMI_MS_DAI) {
 		dev_err(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -430,7 +430,7 @@ static int msm_ext_disp_audio_device_set(struct snd_kcontrol *kcontrol,
 		(struct msm_ext_disp_device_mxr_ctl *)kcontrol->private_value;
 	int dai_id = ctl->dai_idx;
 
-	if (dai_id < 0 || dai_id > DP_DAI2) {
+	if (dai_id < 0 || dai_id > HDMI_MS_DAI) {
 		dev_err(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -884,12 +884,19 @@ static struct snd_soc_dai_driver msm_ext_disp_audio_codec_rx_dais[] = {
 	},
 };
 
+static const struct snd_soc_dapm_widget msm_ext_disp_dapm_widgets[] = {
+	SND_SOC_DAPM_OUTPUT("DISPLAY_PORT"),
+	SND_SOC_DAPM_OUTPUT("DISPLAY_PORT1"),
+};
+
 static const struct snd_soc_component_driver msm_ext_disp_codec_rx_driver = {
 	.name = DRV_NAME,
 	.probe = msm_ext_disp_audio_codec_rx_probe,
 	.remove =  msm_ext_disp_audio_codec_rx_remove,
 	.controls = msm_ext_disp_codec_rx_controls,
 	.num_controls = ARRAY_SIZE(msm_ext_disp_codec_rx_controls),
+	.dapm_widgets = msm_ext_disp_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(msm_ext_disp_dapm_widgets),
 };
 
 static int msm_ext_disp_audio_codec_rx_plat_probe(
