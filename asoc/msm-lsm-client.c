@@ -750,42 +750,26 @@ done:
 	return rc;
 }
 
-static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
+static int msm_lsm_set_conf_locked(struct snd_pcm_substream *substream,
 		struct lsm_params_info_v2 *p_info)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct lsm_priv *prtd = NULL;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	int rc = 0;
-	struct lsm_char_dev *lsm_dev;
-	struct snd_soc_component *component = NULL;
 
 	if (!rtd) {
 		pr_err("%s substream runtime or private_data not found\n",
 			__func__);
 		return -EINVAL;
 	}
-	component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
-	if (!component || !component->dev) {
-		pr_err("%s: invalid component\n", __func__);
-		return -EINVAL;
-	}
-	lsm_dev = (struct lsm_char_dev *) dev_get_drvdata(component->dev);
-	if (!lsm_dev) {
-		pr_err("%s: platform data is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	mutex_lock(&lsm_dev->lock);
 	if (!runtime) {
 		pr_err("%s: Invalid runtime", __func__);
-		mutex_unlock(&lsm_dev->lock);
 		return -EINVAL;
 	}
 	prtd = runtime->private_data;
 	if (!prtd || !prtd->lsm_client) {
 		pr_err("%s: No LSM session active\n", __func__);
-		mutex_unlock(&lsm_dev->lock);
 		return -EINVAL;
 	}
 
@@ -794,7 +778,6 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: invalid number of snd_model keywords %d, the max is %d\n",
 				__func__, p_info->param_size, MAX_KEYWORDS_SUPPORTED);
-			mutex_unlock(&lsm_dev->lock);
 			return -EINVAL;
 		}
 
@@ -805,7 +788,6 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: get_conf_levels failed for snd_model %d, err = %d\n",
 				__func__, p_info->model_id, rc);
-			mutex_unlock(&lsm_dev->lock);
 			return rc;
 		}
 
@@ -826,7 +808,6 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: invalid confidence levels %d\n",
 				__func__, p_info->param_size);
-			mutex_unlock(&lsm_dev->lock);
 			return -EINVAL;
 		}
 
@@ -838,7 +819,6 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: get_conf_levels failed, err = %d\n",
 				__func__, rc);
-			mutex_unlock(&lsm_dev->lock);
 			return rc;
 		}
 
@@ -855,6 +835,35 @@ static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
 			prtd->lsm_client->confidence_levels = NULL;
 		}
 	}
+	return rc;
+}
+
+static int msm_lsm_set_conf(struct snd_pcm_substream *substream,
+		struct lsm_params_info_v2 *p_info)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct lsm_char_dev *lsm_dev;
+	struct snd_soc_component *component = NULL;
+	int rc;
+
+	if (!rtd) {
+		pr_err("%s substream runtime or private_data not found\n",
+			__func__);
+		return -EINVAL;
+	}
+	component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
+	if (!component || !component->dev) {
+		pr_err("%s: invalid component\n", __func__);
+		return -EINVAL;
+	}
+	lsm_dev = (struct lsm_char_dev *) dev_get_drvdata(component->dev);
+	if (!lsm_dev) {
+		pr_err("%s: platform data is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&lsm_dev->lock);
+	rc = msm_lsm_set_conf_locked(substream, p_info);
 	mutex_unlock(&lsm_dev->lock);
 	return rc;
 }
@@ -1315,7 +1324,7 @@ done:
 }
 
 static int msm_lsm_process_params(struct snd_pcm_substream *substream,
-		struct lsm_params_info_v2 *p_info)
+		struct lsm_params_info_v2 *p_info, bool lsm_lock_held)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct lsm_priv *prtd = runtime->private_data;
@@ -1364,7 +1373,10 @@ static int msm_lsm_process_params(struct snd_pcm_substream *substream,
 		break;
 	case LSM_MIN_CONFIDENCE_LEVELS:
 	case LSM_MULTI_SND_MODEL_CONFIDENCE_LEVELS:
-		rc = msm_lsm_set_conf(substream, p_info);
+		if (lsm_lock_held)
+			rc = msm_lsm_set_conf_locked(substream, p_info);
+		else
+			rc = msm_lsm_set_conf(substream, p_info);
 		break;
 	case LSM_REG_SND_MODEL:
 	case LSM_REG_MULTI_SND_MODEL:
@@ -2474,7 +2486,7 @@ static int msm_lsm_ioctl_compat(struct snd_pcm_substream *substream,
 				p_info_v2_32++;
 			}
 
-			err = msm_lsm_process_params(substream, &p_info);
+			err = msm_lsm_process_params(substream, &p_info, false);
 			if (err)
 				dev_err(rtd->dev,
 					"%s: Failed to process param, type%d stage=%d err=%d\n",
@@ -2793,7 +2805,7 @@ static int msm_lsm_ioctl(struct snd_soc_component *component, struct snd_pcm_sub
 				ptr_info_v2 = temp_ptr_info_v2;
 				temp_ptr_info_v2++;
 			}
-			err = msm_lsm_process_params(substream, ptr_info_v2);
+			err = msm_lsm_process_params(substream, ptr_info_v2, false);
 			if (err)
 				dev_err(rtd->dev,
 					"%s: Failed to process param, type=%d stage=%d err=%d\n",
@@ -4154,7 +4166,7 @@ static int msm_lsm_module_params_put(struct snd_kcontrol *kcontrol,
 		ptr_info_v2 = &info_v2;
 		params = params + param_size;
 
-		err = msm_lsm_process_params(substream, ptr_info_v2);
+		err = msm_lsm_process_params(substream, ptr_info_v2, true);
 		if (err)
 			dev_err(rtd->dev,
 				"%s: Failed to process param, type=%d stage=%d err=%d\n",
@@ -4296,7 +4308,7 @@ static int msm_lsm_module_params_put_64(struct snd_kcontrol *kcontrol,
 		ptr_info_v2 = temp_ptr_info_v2;
 		temp_ptr_info_v2++;
 
-		err = msm_lsm_process_params(substream, ptr_info_v2);
+		err = msm_lsm_process_params(substream, ptr_info_v2, true);
 		if (err)
 			dev_err(rtd->dev,
 				"%s: Failed to process param, type=%d stage=%d err=%d\n",
@@ -5347,13 +5359,6 @@ static long msm_lsm_cdev_ioctl(struct file *file,
 		return -ENOMEM;
 	}
 
-	substream->runtime = kzalloc(sizeof(*substream->runtime), GFP_KERNEL);
-	if (!substream->runtime) {
-		pr_err("%s: runtime alloc failed\n", __func__);
-		kfree(substream);
-		return -ENOMEM;
-	}
-
 	switch (ioctl) {
 	case SNDRV_LSM_GENERIC_DET_EVENT:
 		if (copy_from_user(&lsm_info, (void *)arg,sizeof(lsm_info)))
@@ -5493,11 +5498,9 @@ static long msm_lsm_cdev_ioctl(struct file *file,
 		default:
 		pr_err("Received cmd : 0x%x", ioctl);
 	}
-	kfree(substream->runtime);
 	kfree(substream);
 	return rc;
 done:
-	kfree(substream->runtime);
 	kfree(substream);
 	return -EFAULT;
 }
