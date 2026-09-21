@@ -34,8 +34,9 @@
 	codec_info.stream_id = codec_data->stream[dai_id]; \
 
 enum {
-        DP_CONTROLLER0 = 0,
-        DP_CONTROLLER_MAX,
+	DP_CONTROLLER0 = 0,
+	HDMI_CONTROLLER,
+	DP_CONTROLLER_MAX,
 };
 
 enum {
@@ -95,6 +96,15 @@ struct msm_ext_disp_device_mxr_ctl {
     } \
 }
 
+#define SOC_SINGLE_MULTI_EXT(xname, xreg, xshift, xmax, xinvert, xcount,\
+        xhandler_get, xhandler_put) \
+{       .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
+        .info = msm_ext_disp_device_ctl_info, \
+        .get = xhandler_get, .put = xhandler_put, \
+        .private_value = (unsigned long)&(struct soc_mixer_control) \
+                {.reg = xreg, .shift = xshift, .rshift = xshift, .max = xcount, \
+                /*.count = xcount,*/ .platform_max = xmax, .invert = xinvert} }
+
 static int msm_ext_disp_edid_ctl_info(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_info *uinfo)
 {
@@ -117,7 +127,7 @@ static int msm_ext_disp_edid_ctl_info(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -169,7 +179,7 @@ static int msm_ext_disp_edid_get(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -235,7 +245,7 @@ static int msm_ext_disp_audio_type_get(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -327,7 +337,7 @@ static int msm_ext_disp_audio_ack_set(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -391,13 +401,12 @@ static int msm_ext_disp_audio_device_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component =
 			snd_soc_kcontrol_component(kcontrol);
-	struct msm_ext_disp_device_mxr_ctl *ctl =
-		(struct msm_ext_disp_device_mxr_ctl *)kcontrol->private_value;
 	struct msm_ext_disp_audio_codec_rx_data *codec_data;
 	int rc = 0;
-	int dai_id = ctl->dai_idx;
+	int dai_id = ((struct soc_mixer_control *)
+				kcontrol->private_value)->shift;
 
-	if (dai_id < 0 || dai_id > HDMI_MS_DAI) {
+	if (dai_id < 0 || dai_id >= DP_DAI_MAX) {
 		dev_err(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -426,11 +435,10 @@ static int msm_ext_disp_audio_device_set(struct snd_kcontrol *kcontrol,
 			snd_soc_kcontrol_component(kcontrol);
 	struct msm_ext_disp_audio_codec_rx_data *codec_data;
 	int rc = 0;
-	struct msm_ext_disp_device_mxr_ctl *ctl =
-		(struct msm_ext_disp_device_mxr_ctl *)kcontrol->private_value;
-	int dai_id = ctl->dai_idx;
+	int dai_id = ((struct soc_mixer_control *)
+				kcontrol->private_value)->shift;
 
-	if (dai_id < 0 || dai_id > HDMI_MS_DAI) {
+	if (dai_id < 0 || dai_id >= DP_DAI_MAX) {
 		dev_err(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -522,10 +530,18 @@ static const struct snd_kcontrol_new msm_ext_disp_codec_rx_controls[] = {
 		     ext_disp_audio_ack_state3,
 		     NULL, msm_ext_disp_audio_ack_set),
 
-	MSM_EXT_DISP_SOC_MULTI_EXT("External Display Audio Device", DP_DAI1),
-	MSM_EXT_DISP_SOC_MULTI_EXT("External Display1 Audio Device", DP_DAI2),
-	MSM_EXT_DISP_SOC_MULTI_EXT("External HDMI Device", HDMI_MS_DAI),
-
+	SOC_SINGLE_MULTI_EXT("External Display Audio Device",
+			SND_SOC_NOPM, DP_DAI1, DP_STREAM_MAX - 1, 0, 2,
+			msm_ext_disp_audio_device_get,
+			msm_ext_disp_audio_device_set),
+	SOC_SINGLE_MULTI_EXT("External Display1 Audio Device",
+			SND_SOC_NOPM, DP_DAI2, DP_STREAM_MAX - 1, 0, 2,
+			msm_ext_disp_audio_device_get,
+			msm_ext_disp_audio_device_set),
+	SOC_SINGLE_MULTI_EXT("External HDMI Audio Device",
+			SND_SOC_NOPM, HDMI_DAI, DP_STREAM_MAX - 1, 0, 2,
+			msm_ext_disp_audio_device_get,
+			msm_ext_disp_audio_device_set),
 };
 
 static int msm_ext_disp_audio_codec_rx_dai_startup(
@@ -549,7 +565,7 @@ static int msm_ext_disp_audio_codec_rx_dai_startup(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -610,7 +626,7 @@ static int msm_ext_disp_audio_codec_rx_dai_hw_params(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -684,6 +700,10 @@ static int msm_ext_disp_audio_codec_rx_dai_hw_params(
 	audio_setup_params.down_mix = down_mix;
 
 	mutex_lock(&codec_data->dp_ops_lock);
+	if (dai->id == HDMI_DAI)
+		type = EXT_DISPLAY_TYPE_HDMI;
+	else
+		type = EXT_DISPLAY_TYPE_DP;
 	SWITCH_DP_CODEC(codec_info, codec_data, dai->id, type);
 	rc = msm_ext_disp_select_audio_codec(codec_data->ext_disp_core_pdev,
 						 &codec_info);
@@ -724,7 +744,7 @@ static void msm_ext_disp_audio_codec_rx_dai_shutdown(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -884,19 +904,12 @@ static struct snd_soc_dai_driver msm_ext_disp_audio_codec_rx_dais[] = {
 	},
 };
 
-static const struct snd_soc_dapm_widget msm_ext_disp_dapm_widgets[] = {
-	SND_SOC_DAPM_OUTPUT("DISPLAY_PORT"),
-	SND_SOC_DAPM_OUTPUT("DISPLAY_PORT1"),
-};
-
 static const struct snd_soc_component_driver msm_ext_disp_codec_rx_driver = {
 	.name = DRV_NAME,
 	.probe = msm_ext_disp_audio_codec_rx_probe,
 	.remove =  msm_ext_disp_audio_codec_rx_remove,
 	.controls = msm_ext_disp_codec_rx_controls,
 	.num_controls = ARRAY_SIZE(msm_ext_disp_codec_rx_controls),
-	.dapm_widgets = msm_ext_disp_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(msm_ext_disp_dapm_widgets),
 };
 
 static int msm_ext_disp_audio_codec_rx_plat_probe(
