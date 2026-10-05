@@ -5106,7 +5106,7 @@ static struct msm_pcm_channel_mixer *msm_compr_get_chmixer(
 		return NULL;
 	}
 
-	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
+	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
 		pr_err("%s: invalid FE %llu\n", __func__, fe_id);
 		return NULL;
 	}
