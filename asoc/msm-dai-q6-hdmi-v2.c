@@ -34,6 +34,7 @@
 enum {
 	DP_CONTROLLER0 = 0,
 	DP_CONTROLLER1,
+	HDMI_CONTROLLER,
 	DP_CONTROLLER_MAX,
 };
 
@@ -127,6 +128,21 @@ static int msm_dai_q6_ext_disp_device_idx_put(struct snd_kcontrol *kcontrol,
 
 	dai_data->ctl_idx = ucontrol->value.integer.value[0];
 	dai_data->stream_idx = ucontrol->value.integer.value[1];
+	/*
+	 * Clamp stream_idx to a valid range rather than hard-failing.
+	 * The HAL passes an int[2] array but tinyalsa copies it using
+	 * sizeof(long) per element, so value[1] can contain stack garbage
+	 * when sizeof(int) != sizeof(long).  A single-stream DP port always
+	 * uses stream 0, so defaulting out-of-range values to 0 is safe.
+	 */
+	if (ucontrol->value.integer.value[1] < 0 ||
+	    ucontrol->value.integer.value[1] > (DP_STREAM_MAX - 1)) {
+		pr_info("%s out-of-range ! Fall-back to single-stream DP \n",__func__);
+		dai_data->stream_idx = 0;
+	}
+	else
+		dai_data->stream_idx = ucontrol->value.integer.value[1];
+
 	pr_debug("%s: DP ctl id %d stream id %d\n", __func__,
 		 dai_data->ctl_idx, dai_data->stream_idx);
 
@@ -159,6 +175,18 @@ static int msm_dai_q6_ext_disp_ca_put(struct snd_kcontrol *kcontrol,
 	if (!dai_data) {
 		pr_err("%s: dai_data is NULL\n", __func__);
 		return -EINVAL;
+	}
+
+	/*
+	 * Ignore ca=0 writes after a hotplug race: the reconnect path does not
+	 * always re-push the EDID-derived CA value before prepare, so a stale
+	 * write of 0 would override the default 2-ch allocation and cause the
+	 * DISPLAY_PORT widget power-up to fail, leaving DPCM with no active BE.
+	 */
+	if (ucontrol->value.integer.value[0] == 0 && dai_data->ca.set_ca) {
+		pr_warn("%s: ignoring ca=0, retaining cached ca=%d\n",
+			__func__, dai_data->ca.ca);
+		return 0;
 	}
 
 	dai_data->ca.ca = ucontrol->value.integer.value[0];
