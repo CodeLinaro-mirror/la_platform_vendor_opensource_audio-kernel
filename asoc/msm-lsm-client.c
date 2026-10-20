@@ -2624,7 +2624,7 @@ static int msm_lsm_ioctl(struct snd_soc_component *component, struct snd_pcm_sub
 			(!substream) ? "substream" : "private_data");
 		return -EINVAL;
 	}
-	pr_err("%s Entered for cmd : %d\n", __func__, cmd);
+	pr_debug("%s Entered for cmd : %d\n", __func__, cmd);
 	runtime = substream->runtime;
 	prtd = runtime->private_data;
 	rtd = substream->private_data;
@@ -5009,7 +5009,7 @@ static int msm_lsm_add_va_controls(struct snd_soc_pcm_runtime *rtd)
 		snprintf(ctl_name, sizeof(ctl_name), "%s %s",
 			 rtd->dai_link->name, va_mixer_ctl[i].name);
 		ctl_copy.name = ctl_name;
-		pr_err("%s Adding mixer control %s \n",__func__, ctl_copy.name);
+		pr_debug("%s Adding mixer control %s \n",__func__, ctl_copy.name);
 
 		if (ctl_copy.tlv.c &&
 				(ctl_copy.access &
@@ -5024,9 +5024,12 @@ static int msm_lsm_add_va_controls(struct snd_soc_pcm_runtime *rtd)
 		ret = snd_pcm_add_va_ctls(pcm, SNDRV_PCM_STREAM_CAPTURE,
 				pvt_value, &va_dev_info, &ctl_copy);
 		if (ret < 0) {
-			pr_err("%s adding va control failed ret %d\n", __func__, ret);
-			return ret;
-		}
+                   pr_err("%s adding va control failed ret %d\n", __func__, ret);
+                   if (ctl_copy.tlv.c &&
+                           (ctl_copy.access & SNDRV_CTL_ELEM_ACCESS_TLV_CALLBACK))
+                      kfree(sbe);
+                   return ret;
+                }
 	}
 
 	return 0;
