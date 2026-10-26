@@ -4239,13 +4239,15 @@ static int msm_compr_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 	cstream = pdata->cstream[fe_id];
 	if (cstream == NULL) {
 		pr_err("%s cstream is null\n", __func__);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
 
 	prtd = cstream->runtime->private_data;
 	if (!prtd) {
 		pr_err("%s: prtd is null\n", __func__);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
 
 	if (prtd->audio_client == NULL) {
@@ -4366,18 +4368,16 @@ static int msm_compr_rtic_event_ack_put(struct snd_kcontrol *kcontrol,
 	}
 
 	memcpy(&param_length, ucontrol->value.bytes.data,
-		sizeof(param_length));
-	if ((param_length + sizeof(param_length))
-		>= sizeof(ucontrol->value.bytes.data)) {
-		pr_err("%s param length=%d  exceeds limit",
+	    sizeof(param_length));
+	if (param_length < 0 ||
+	    (size_t)param_length >
+	    sizeof(ucontrol->value.bytes.data) - sizeof(param_length)) {
+		pr_err("%s: invalid param length=%d\n",
 			__func__, param_length);
 		ret = -EINVAL;
 		goto done;
-	}
-
-	ret = q6asm_send_rtic_event_ack(prtd->audio_client,
-			ucontrol->value.bytes.data + sizeof(param_length),
-			param_length);
+        }
+	ret = q6asm_send_rtic_event_ack(prtd->audio_client,ucontrol->value.bytes.data + sizeof(param_length),(uint32_t)param_length);
 	if (ret < 0)
 		pr_err("%s: failed to send rtic event ack, err = %d\n",
 			__func__, ret);
@@ -5104,7 +5104,7 @@ static struct msm_pcm_channel_mixer *msm_compr_get_chmixer(
 		return NULL;
 	}
 
-	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
+	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
 		pr_err("%s: invalid FE %llu\n", __func__, fe_id);
 		return NULL;
 	}

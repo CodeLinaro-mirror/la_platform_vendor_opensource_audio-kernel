@@ -25,6 +25,7 @@
 #include "adsp_err.h"
 
 #define TIMEOUT_MS 1000
+#define TOPO_REG_MAX_RETRIES  5   /* max retry attempts for topology registration */
 /*
  * AVS bring up in the modem is optimized for the new
  * Sub System Restart design and 100 milliseconds timeout
@@ -1775,6 +1776,8 @@ static int q6core_send_custom_topologies(void)
 	int ret = 0;
 	int ret2 = 0;
 	int32_t adsp_ready = 0;
+	int32_t adsp_status = 0;
+	int retry_count = 0;
 	unsigned long timeout;
 	struct cal_block_data *cal_block = NULL;
 	struct avcs_cmd_register_topologies reg_top;
@@ -1803,7 +1806,9 @@ static int q6core_send_custom_topologies(void)
 		}
 	}
 
-	memset(&reg_top, 0, sizeof(reg_top));
+retry:
+	ret = ret2 = 0;
+	adsp_status = 0;
 	mutex_lock(&q6core_lcl.cal_data[CUST_TOP_CAL]->lock);
 	mutex_lock(&q6core_lcl.cmd_lock);
 
@@ -1827,9 +1832,11 @@ static int q6core_send_custom_topologies(void)
 		&cal_block->map_data.q6map_handle);
 	if (ret)  {
 		pr_err("%s: q6core_map_memory_regions failed\n", __func__);
+		adsp_status = ret;
 		goto unlock;
 	}
 
+	memset(&reg_top, 0, sizeof(reg_top));
 	reg_top.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 		APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
 	reg_top.hdr.pkt_size = sizeof(reg_top);
@@ -1859,6 +1866,7 @@ static int q6core_send_custom_topologies(void)
 	if (ret < 0) {
 		pr_err("%s: Register topologies failed %d\n",
 			__func__, ret);
+		adsp_status = ret;
 		goto unmap;
 	}
 
@@ -1868,11 +1876,15 @@ static int q6core_send_custom_topologies(void)
 	if (!ret) {
 		pr_err("%s: wait_event timeout for Register topologies\n",
 			__func__);
+		adsp_status = ret = -ETIMEDOUT;;
 		goto unmap;
 	}
 
 	if (q6core_lcl.adsp_status < 0)
-		ret = q6core_lcl.adsp_status;
+		adsp_status = ret = q6core_lcl.adsp_status;
+	else
+		ret = 0;
+
 unmap:
 	ret2 = q6core_memory_unmap_regions(cal_block->map_data.q6map_handle);
 	if (ret2)  {
@@ -1885,6 +1897,13 @@ unmap:
 unlock:
 	mutex_unlock(&q6core_lcl.cmd_lock);
 	mutex_unlock(&q6core_lcl.cal_data[CUST_TOP_CAL]->lock);
+
+	if (adsp_status < 0 && retry_count < TOPO_REG_MAX_RETRIES && !ret2) {
+		retry_count++;
+		pr_warn("%s: topology reg failed (err %d), retry %d/%d\n",
+			__func__, adsp_status, retry_count, TOPO_REG_MAX_RETRIES);
+		goto retry;
+	}
 
 	return ret;
 }
