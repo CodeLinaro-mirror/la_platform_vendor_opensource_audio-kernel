@@ -326,6 +326,19 @@ static int msm_pcm_add_soft_volume_params_control(struct snd_soc_pcm_runtime *rt
 	return 0;
 }
 
+static bool msm_pcm_event_opcode_requires_payload(uint32_t opcode)
+{
+    switch (opcode) {
+    case ASM_DATA_EVENT_READ_DONE_V2:
+    case ASM_STREAM_PP_EVENT:
+    case ASM_STREAM_CMD_ENCDEC_EVENTS:
+    case APR_BASIC_RSP_RESULT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void event_handler(uint32_t opcode,
 		uint32_t token, uint32_t *payload, void *priv)
 {
@@ -342,6 +355,11 @@ static void event_handler(uint32_t opcode,
 		pr_err("%s: prtd is NULL in event_handler\n", __func__);
 		return;
 	}
+        if (msm_pcm_event_opcode_requires_payload(opcode) && !payload) {
+                pr_err("%s: NULL payload for opcode 0x%x\n",
+                   __func__, opcode);
+                return;
+        }
 
 	switch (opcode) {
 	case ASM_DATA_EVENT_WRITE_DONE_V2: {
@@ -404,6 +422,12 @@ static void event_handler(uint32_t opcode,
 		substream = READ_ONCE(prtd->substream);
 		if (!substream || READ_ONCE(prtd->closing))
 			return;
+    		/* runtime can be detached independently — guard all dereferences */
+    		if (!substream->runtime)
+		{
+			pr_debug("%s: substream->runtime is NULL.\n", __func__);
+        		return;
+		}
 		buf_index = q6asm_get_buf_index_from_token(token);
 		if (buf_index >= CAPTURE_MAX_NUM_PERIODS) {
 			pr_err("%s: buffer index %u is out of range.\n",
@@ -498,6 +522,8 @@ static void event_handler(uint32_t opcode,
 	case APR_BASIC_RSP_RESULT: {
 		switch (payload[0]) {
 		case ASM_SESSION_CMD_RUN_V2:
+			pr_debug("%s: ASM_SESSION_CMD_RUN_V2:",
+				__func__);
 			substream = READ_ONCE(prtd->substream);
 			if (!substream) {
 				pr_err("%s: substream is NULL.\n", __func__);
@@ -554,8 +580,10 @@ static void event_handler(uint32_t opcode,
 		atomic_inc(&prtd->out_count);
 		atomic_inc(&prtd->in_count);
 		prtd->reset_event = true;
-		if (atomic_read(&prtd->start))
+		if (substream && !READ_ONCE(prtd->closing)) {
+                    if (atomic_read(&prtd->start))
 			snd_pcm_period_elapsed(substream);
+		}
 		wake_up(&the_locks.eos_wait);
 		wake_up(&the_locks.write_wait);
 		wake_up(&the_locks.read_wait);
@@ -1369,7 +1397,6 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 					prtd->audio_client);
 		q6asm_audio_client_free(prtd->audio_client);
 		prtd->audio_client = NULL;
-
 	}
 
 	found = msm_pcm_routing_get_portid_copp_idx(soc_prtd->dai_link->id,
@@ -1499,6 +1526,7 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
 			snd_soc_rtdcom_lookup(soc_prtd, DRV_NAME);
 	struct msm_plat_data *pdata;
 	int dir = OUT;
+	int close_ret;
 
 	pr_debug("%s\n", __func__);
 
@@ -1517,10 +1545,15 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
 	if (prtd->audio_client) {
 		WRITE_ONCE(prtd->closing, true);
 		WRITE_ONCE(prtd->substream, NULL);
-		q6asm_cmd(prtd->audio_client, CMD_CLOSE);
+		close_ret = q6asm_cmd(prtd->audio_client, CMD_CLOSE);
+		if (close_ret) {
+			pr_err("%s: CMD_CLOSE failed: %d\n", __func__, close_ret);
+		}
+
 		q6asm_audio_client_buf_free_contiguous(dir,
 				prtd->audio_client);
 		q6asm_audio_client_free(prtd->audio_client);
+		prtd->audio_client = NULL;
 	}
 
 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->id,
